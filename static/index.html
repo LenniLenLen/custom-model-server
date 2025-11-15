@@ -1,19 +1,23 @@
-<html>
-<head><title>Custom Model Server</title></head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Models</title>
+<link rel="stylesheet" href="styles.css">
+</head>
 <body>
-<h1>Custom Models</h1>
-<a href="/upload.html">Upload Model</a>
-<h2>Existing models</h2>
-<ul id="list"></ul>
-<script>
-fetch('/models').then(r=>r.json()).then(list=>{
-const ul=document.getElementById('list');
-list.forEach(m=>{
-const li=document.createElement('li');
-li.textContent=m;
-ul.appendChild(li);
-})
-});
-</script>
+<h1>Custom Model Manager</h1>
+
+<form id="uploadForm">
+  <input type="text" name="name" placeholder="Model Name" required>
+  <input type="file" name="file" accept=".json" required>
+  <button type="submit">Upload Model</button>
+</form>
+
+<h2>Existing Models</h2>
+<ul id="modelList"></ul>
+
+<script src="upload.js"></script>
 </body>
 </html>

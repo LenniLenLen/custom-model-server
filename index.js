@@ -43,6 +43,7 @@ res.sendFile(path.join(__dirname, 'public-pack', 'pack.zip'));
 });
 
 
-const PORT = process.env.PORT || 3000;  // use Railway port if available
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => console.log(`Server online on port ${PORT}`));
+

@@ -13,10 +13,10 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 
-// Allowed extensions for single file uploads
+// Allowed single-file extensions
 const allowedSingleExtensions = ['.json', '.obj', '.gltf', '.glb', '.fbx'];
 
-// Create user folder if not exists
+// Ensure user folder exists
 function ensureUserFolder(username) {
   const folder = path.join(__dirname, 'models', username);
   if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
@@ -38,12 +38,10 @@ app.post('/upload', upload.single('file'), (req, res) => {
   if (!fs.existsSync(modelFolder)) fs.mkdirSync(modelFolder, { recursive: true });
 
   if (ext === '.zip') {
-    // Extract ZIP
     const zip = new AdmZip(req.file.path);
     zip.extractAllTo(modelFolder, true);
     fs.unlinkSync(req.file.path);
   } else if (allowedSingleExtensions.includes(ext)) {
-    // Single file upload
     const destPath = path.join(modelFolder, req.file.originalname);
     fs.renameSync(req.file.path, destPath);
   } else {
@@ -69,11 +67,29 @@ app.get('/models/:username', (req, res) => {
 app.delete('/models/:username/:modelName', (req, res) => {
   const { username, modelName } = req.params;
   const modelFolder = path.join(__dirname, 'models', username, modelName);
+
   if (!fs.existsSync(modelFolder)) return res.status(404).send('Not found');
 
   fs.rmSync(modelFolder, { recursive: true, force: true });
-  buildPack(); // rebuild pack.zip
+  buildPack();
   res.send({ success: true });
+});
+
+// Serve preview images (first PNG in model folder)
+app.get('/preview/:username/:modelName/:file?', (req, res) => {
+  const { username, modelName, file } = req.params;
+  const modelFolder = path.join(__dirname, 'models', username, modelName);
+
+  let imagePath;
+  if (file) {
+    imagePath = path.join(modelFolder, file);
+  } else {
+    const files = fs.readdirSync(modelFolder).filter(f => f.endsWith('.png'));
+    if (files.length === 0) return res.status(404).send('No preview');
+    imagePath = path.join(modelFolder, files[0]);
+  }
+
+  res.sendFile(imagePath);
 });
 
 // Pack download

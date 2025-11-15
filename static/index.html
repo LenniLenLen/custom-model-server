@@ -4,14 +4,22 @@
 <meta charset="UTF-8">
 <title>Custom Model Uploader</title>
 <link rel="stylesheet" href="style.css">
+<style>
+body { font-family: sans-serif; margin: 2rem; }
+form { margin-bottom: 2rem; }
+ul { list-style: none; padding: 0; }
+li { margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem; }
+img { width: 64px; height: 64px; object-fit: contain; border: 1px solid #ccc; }
+button { cursor: pointer; }
+</style>
 </head>
 <body>
 <h1>Custom Model Uploader</h1>
 
 <form id="uploadForm">
-  <input type="text" id="username" placeholder="Your name" required>
-  <input type="text" id="modelName" placeholder="Model name" required>
-  <input type="file" id="modelFile" accept=".zip,.json,.obj,.gltf,.glb,.fbx" required>
+  <input type="text" id="username" name="username" placeholder="Your name" required>
+  <input type="text" id="modelName" name="modelName" placeholder="Model name" required>
+  <input type="file" id="modelFile" name="file" accept=".zip,.json,.obj,.gltf,.glb,.fbx" required>
   <button type="submit">Upload Model</button>
 </form>
 
@@ -25,20 +33,28 @@ const list = document.getElementById('modelList');
 function refreshList() {
   const username = document.getElementById('username').value;
   if (!username) return;
-  fetch(`/models/${username}`)
+  fetch(`/models/${encodeURIComponent(username)}`)
     .then(res => res.json())
     .then(folders => {
       list.innerHTML = '';
       folders.forEach(folder => {
         const li = document.createElement('li');
-        li.textContent = folder;
+        const img = document.createElement('img');
+        img.src = `/preview/${encodeURIComponent(username)}/${encodeURIComponent(folder)}`;
+        li.appendChild(img);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = folder;
+        li.appendChild(nameSpan);
+
         const delBtn = document.createElement('button');
         delBtn.textContent = 'Delete';
         delBtn.onclick = () => {
-          fetch(`/models/${username}/${folder}`, { method: 'DELETE' })
+          fetch(`/models/${encodeURIComponent(username)}/${encodeURIComponent(folder)}`, { method: 'DELETE' })
             .then(() => refreshList());
         };
         li.appendChild(delBtn);
+
         list.appendChild(li);
       });
     });
@@ -49,6 +65,7 @@ form.onsubmit = (e) => {
   const username = document.getElementById('username').value;
   const modelName = document.getElementById('modelName').value;
   const file = document.getElementById('modelFile').files[0];
+  if (!file) return alert('Select a file');
 
   const data = new FormData();
   data.append('username', username);

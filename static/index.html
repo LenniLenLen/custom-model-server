@@ -11,7 +11,7 @@
 <form id="uploadForm">
   <input type="text" id="username" placeholder="Your name" required>
   <input type="text" id="modelName" placeholder="Model name" required>
-<input type="file" id="modelFile" accept=".obj,.glb,.gltf,.fbx,.json" required>
+  <input type="file" id="modelFile" accept=".zip,.json,.obj,.gltf,.glb,.fbx" required>
   <button type="submit">Upload Model</button>
 </form>
 
@@ -27,15 +27,15 @@ function refreshList() {
   if (!username) return;
   fetch(`/models/${username}`)
     .then(res => res.json())
-    .then(files => {
+    .then(folders => {
       list.innerHTML = '';
-      files.forEach(f => {
+      folders.forEach(folder => {
         const li = document.createElement('li');
-        li.textContent = f;
+        li.textContent = folder;
         const delBtn = document.createElement('button');
         delBtn.textContent = 'Delete';
         delBtn.onclick = () => {
-          fetch(`/models/${username}/${f}`, { method: 'DELETE' })
+          fetch(`/models/${username}/${folder}`, { method: 'DELETE' })
             .then(() => refreshList());
         };
         li.appendChild(delBtn);

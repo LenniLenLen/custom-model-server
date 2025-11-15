@@ -19,16 +19,25 @@ function ensureUserFolder(username) {
   return folder;
 }
 
-// Upload setup
+// Allowed file types
+const allowedExtensions = ['.obj', '.glb', '.gltf', '.fbx', '.json'];
+
+// Multer setup
 const upload = multer({ dest: 'temp/' });
 
+// Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
   const { username, modelName } = req.body;
   if (!username || !modelName || !req.file) return res.status(400).send('Missing info');
 
-  const userFolder = ensureUserFolder(username);
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  if (!allowedExtensions.includes(ext)) {
+    fs.unlinkSync(req.file.path);
+    return res.status(400).send(`Invalid file type. Allowed: ${allowedExtensions.join(', ')}`);
+  }
 
-  const destPath = path.join(userFolder, `${modelName}.json`);
+  const userFolder = ensureUserFolder(username);
+  const destPath = path.join(userFolder, `${modelName}${ext}`);
   fs.renameSync(req.file.path, destPath);
 
   buildPack(); // rebuild pack.zip
@@ -40,7 +49,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.get('/models/:username', (req, res) => {
   const userFolder = path.join(__dirname, 'models', req.params.username);
   if (!fs.existsSync(userFolder)) return res.json([]);
-  const files = fs.readdirSync(userFolder).filter(f => f.endsWith('.json'));
+  const files = fs.readdirSync(userFolder).filter(f => allowedExtensions.includes(path.extname(f).toLowerCase()));
   res.json(files);
 });
 

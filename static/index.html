@@ -11,7 +11,7 @@
 <form id="uploadForm">
   <input type="text" id="username" placeholder="Your name" required>
   <input type="text" id="modelName" placeholder="Model name" required>
-  <input type="file" id="modelFile" accept=".json" required>
+  <input type="file" id="modelFile" required>
   <button type="submit">Upload Model</button>
 </form>
 
@@ -56,10 +56,12 @@ form.onsubmit = (e) => {
   data.append('file', file);
 
   fetch('/upload', { method: 'POST', body: data })
+    .then(res => res.json())
     .then(() => {
       refreshList();
       form.reset();
-    });
+    })
+    .catch(err => alert('Upload failed'));
 };
 
 document.getElementById('username').addEventListener('change', refreshList);

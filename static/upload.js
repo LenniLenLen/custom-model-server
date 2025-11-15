@@ -36,3 +36,7 @@ form.addEventListener('submit', async e => {
 });
 
 fetchModels();
+
+const ext = path.extname(req.file.originalname); // z. B. .obj
+const destPath = path.join(userFolder, `${modelName}${ext}`);
+fs.renameSync(req.file.path, destPath);

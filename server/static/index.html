@@ -1,0 +1,19 @@
+<html>
+<head><title>Custom Model Server</title></head>
+<body>
+<h1>Custom Models</h1>
+<a href="/upload.html">Upload Model</a>
+<h2>Existing models</h2>
+<ul id="list"></ul>
+<script>
+fetch('/models').then(r=>r.json()).then(list=>{
+const ul=document.getElementById('list');
+list.forEach(m=>{
+const li=document.createElement('li');
+li.textContent=m;
+ul.appendChild(li);
+})
+});
+</script>
+</body>
+</html>

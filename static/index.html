@@ -2,22 +2,67 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Custom Models</title>
-<link rel="stylesheet" href="styles.css">
+<title>Custom Model Uploader</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Custom Model Manager</h1>
+<h1>Custom Model Uploader</h1>
 
 <form id="uploadForm">
-  <input type="text" name="name" placeholder="Model Name" required>
-  <input type="file" name="file" accept=".json" required>
+  <input type="text" id="username" placeholder="Your name" required>
+  <input type="text" id="modelName" placeholder="Model name" required>
+  <input type="file" id="modelFile" accept=".json" required>
   <button type="submit">Upload Model</button>
 </form>
 
-<h2>Existing Models</h2>
+<h2>Your Models</h2>
 <ul id="modelList"></ul>
 
-<script src="upload.js"></script>
+<script>
+const form = document.getElementById('uploadForm');
+const list = document.getElementById('modelList');
+
+function refreshList() {
+  const username = document.getElementById('username').value;
+  if (!username) return;
+  fetch(`/models/${username}`)
+    .then(res => res.json())
+    .then(files => {
+      list.innerHTML = '';
+      files.forEach(f => {
+        const li = document.createElement('li');
+        li.textContent = f;
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = () => {
+          fetch(`/models/${username}/${f}`, { method: 'DELETE' })
+            .then(() => refreshList());
+        };
+        li.appendChild(delBtn);
+        list.appendChild(li);
+      });
+    });
+}
+
+form.onsubmit = (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value;
+  const modelName = document.getElementById('modelName').value;
+  const file = document.getElementById('modelFile').files[0];
+
+  const data = new FormData();
+  data.append('username', username);
+  data.append('modelName', modelName);
+  data.append('file', file);
+
+  fetch('/upload', { method: 'POST', body: data })
+    .then(() => {
+      refreshList();
+      form.reset();
+    });
+};
+
+document.getElementById('username').addEventListener('change', refreshList);
+</script>
 </body>
 </html>

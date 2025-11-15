@@ -3,86 +3,62 @@ const multer = require('multer');
 const fs = require('fs');
 const cors = require('cors');
 const path = require('path');
-const session = require('express-session');
 const buildPack = require('./pack-builder');
 
 const app = express();
 app.use(cors());
 app.use(express.static('static'));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Sessions to track users
-app.use(session({
-  secret: 'supersecretkey',
-  resave: false,
-  saveUninitialized: true
-}));
-
-// Ensure models folder exists
-if (!fs.existsSync('models')) fs.mkdirSync('models');
-
-// Multer config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'models/'),
-  filename: (req, file, cb) => {
-    // filename will be set after getting custom name
-    cb(null, file.originalname);
-  }
-});
-const upload = multer({ storage });
-
-// Upload endpoint
-app.post('/upload', upload.single('file'), async (req, res) => {
-  const customName = req.body.name?.trim();
-  if (!req.file || !customName) return res.status(400).send('File and name required');
-
-  const ext = path.extname(req.file.originalname);
-  const newFileName = customName + ext;
-  const newPath = path.join('models', newFileName);
-
-  // Rename uploaded file
-  fs.renameSync(req.file.path, newPath);
-
-  // Save uploader in session
-  if (!req.session.uploaded) req.session.uploaded = [];
-  req.session.uploaded.push(newFileName);
-
-  // Rebuild pack
-  await buildPack();
-
-  res.json({ message: 'Uploaded', file: newFileName });
-});
-
-// List models
-app.get('/models', (req, res) => {
-  const files = fs.readdirSync('models').filter(f => f.endsWith('.json'));
-  // Include a flag if the session owns it
-  const sessionUploads = req.session.uploaded || [];
-  const list = files.map(f => ({
-    name: f,
-    owned: sessionUploads.includes(f)
-  }));
-  res.json(list);
-});
-
-// Delete model
-app.post('/delete', async (req, res) => {
-  const { file } = req.body;
-  if (!file) return res.status(400).send('File required');
-
-  const sessionUploads = req.session.uploaded || [];
-  if (!sessionUploads.includes(file)) return res.status(403).send('Not allowed');
-
-  const filePath = path.join('models', file);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-
-  // Remove from session
-  req.session.uploaded = sessionUploads.filter(f => f !== file);
-
-  await buildPack();
-  res.json({ message: 'Deleted', file });
-});
 
 const PORT = process.env.PORT || 8080;
+
+// Middleware to create user folder
+function ensureUserFolder(username) {
+  const folder = path.join(__dirname, 'models', username);
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+  return folder;
+}
+
+// Upload setup
+const upload = multer({ dest: 'temp/' });
+
+app.post('/upload', upload.single('file'), (req, res) => {
+  const { username, modelName } = req.body;
+  if (!username || !modelName || !req.file) return res.status(400).send('Missing info');
+
+  const userFolder = ensureUserFolder(username);
+
+  const destPath = path.join(userFolder, `${modelName}.json`);
+  fs.renameSync(req.file.path, destPath);
+
+  buildPack(); // rebuild pack.zip
+
+  res.send({ success: true, modelName });
+});
+
+// List user models
+app.get('/models/:username', (req, res) => {
+  const userFolder = path.join(__dirname, 'models', req.params.username);
+  if (!fs.existsSync(userFolder)) return res.json([]);
+  const files = fs.readdirSync(userFolder).filter(f => f.endsWith('.json'));
+  res.json(files);
+});
+
+// Delete a model
+app.delete('/models/:username/:modelName', (req, res) => {
+  const { username, modelName } = req.params;
+  const userFolder = path.join(__dirname, 'models', username);
+  const filePath = path.join(userFolder, modelName);
+  if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
+  fs.unlinkSync(filePath);
+
+  buildPack(); // rebuild pack.zip
+  res.send({ success: true });
+});
+
+// Pack download
+app.get('/pack.zip', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public-pack', 'pack.zip'));
+});
+
 app.listen(PORT, () => console.log(`Server online on port ${PORT}`));

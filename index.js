@@ -1,12 +1,12 @@
-// index.js
+// index.js (updated - no puppeteer, quick sharp thumbnails)
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const AdmZip = require('adm-zip');
-const buildPack = require('./pack-builder'); // dein existing pack builder
-const puppeteer = require('puppeteer');
+const sharp = require('sharp'); // new: used for thumbnail generation
+const buildPack = require('./pack-builder'); // keep your pack builder
 
 const app = express();
 app.use(cors());
@@ -74,17 +74,16 @@ app.post('/upload', upload.fields([{ name: 'file' }, { name: 'thumbnail' }]), as
         return res.status(400).json({ error: 'Thumbnail must be PNG.' });
       }
       fs.renameSync(thumbField.path, path.join(modelFolder, 'thumbnail.png'));
+    } else {
+      // No user-provided thumbnail: try to auto-generate a quick plane thumbnail from textures
+      try {
+        await generatePlaneThumbnail(modelName);
+      } catch (err) {
+        console.warn('Thumbnail generation (plane) failed (non-fatal):', err.message || err);
+      }
     }
 
-    // Try to auto-generate thumbnail server-side (Puppeteer). This is async but we'll await it.
-    try {
-      await generateThumbnail(modelName);
-    } catch (err) {
-      console.warn('Thumbnail generation failed (non-fatal):', err.message || err);
-      // continue — thumbnail isn't critical
-    }
-
-    // rebuild pack
+    // rebuild pack (keep async-safe)
     try { buildPack(); } catch(e) { console.error('pack build failed', e); }
 
     return res.json({ success: true, model: modelName });
@@ -164,15 +163,6 @@ app.get('/model-file/:modelName/*', (req, res) => {
 });
 
 /* ----------------------------
-   Render page for puppeteer to open:
-   /render/<modelName>
-   static render.html loads model via /model-file/<modelName>/...
-   ---------------------------- */
-app.get('/render/:modelName', (req, res) => {
-  res.sendFile(path.join(__dirname, 'static', 'render.html'));
-});
-
-/* ----------------------------
    Pack download (existing)
    ---------------------------- */
 app.get('/pack.zip', (req, res) => {
@@ -198,45 +188,140 @@ function findFirstFileRecursive(dir, predicate) {
 }
 
 /* ----------------------------
-   Thumbnail generator using Puppeteer
-   - opens /render/<modelName>
-   - waits for window.postMessage({ready:true})
-   - captures canvas element and saves to thumbnail.png
+   QUICK plane thumbnail generation using sharp
+   - picks first referenced texture (from model JSON) or first PNG in folder
+   - composes into a 256x256 PNG with a soft background + border
    ---------------------------- */
-async function generateThumbnail(modelName) {
-  // Launch puppeteer
-  const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    // headless:true default
-  });
-  try {
-    const page = await browser.newPage();
-    // set viewport to match desired thumbnail size
-    await page.setViewport({ width: 512, height: 512, deviceScaleFactor: 1 });
+async function generatePlaneThumbnail(modelName) {
+  const modelFolder = path.join(GLOBAL_MODELS_DIR, modelName);
 
-    // intercept console from page for debugging
-    page.on('console', msg => {
-      console.log('PAGE LOG:', msg.text());
-    });
+  // find a model JSON to inspect textures
+  const jsonPath = findFirstFileRecursive(modelFolder, (n) => n.toLowerCase().endsWith('.json'));
+  let texturePath = null;
 
-    const url = `http://127.0.0.1:${PORT}/render/${encodeURIComponent(modelName)}`;
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
-
-    // wait for the page to signal ready via window.__THUMB_READY = true
-    await page.waitForFunction(() => window.__THUMB_READY === true, { timeout: 30_000 });
-
-    // find canvas element and screenshot it (clip to element)
-    const canvas = await page.$('canvas');
-    if (!canvas) throw new Error('No canvas found in render page');
-
-    const screenshotBuffer = await canvas.screenshot({ type: 'png' });
-    const thumbPath = path.join(GLOBAL_MODELS_DIR, modelName, 'thumbnail.png');
-    fs.writeFileSync(thumbPath, screenshotBuffer);
-
-    await page.close();
-  } finally {
-    await browser.close();
+  if (jsonPath) {
+    try {
+      const j = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      if (j.textures) {
+        // pick first texture value
+        const vals = Object.values(j.textures).filter(v => typeof v === 'string');
+        if (vals.length > 0) {
+          let texRef = vals[0];
+          if (texRef.startsWith('#')) texRef = texRef.substring(1);
+          // try common locations
+          const candidates = [
+            path.join(modelFolder, texRef + '.png'),
+            path.join(modelFolder, 'textures', texRef + '.png'),
+            path.join(modelFolder, 'assets', 'minecraft', 'textures', texRef + '.png'),
+            path.join(modelFolder, texRef),
+          ];
+          for (const c of candidates) {
+            if (fs.existsSync(c)) { texturePath = c; break; }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore JSON parse errors
+    }
   }
+
+  // fallback: first png in folder
+  if (!texturePath) {
+    const found = findFirstFileRecursive(modelFolder, (n) => n.toLowerCase().endsWith('.png'));
+    if (found) texturePath = found;
+  }
+
+  // If still no texture, create simple placeholder
+  const outPath = path.join(modelFolder, 'thumbnail.png');
+  const SIZE = 256;
+
+  if (!texturePath) {
+    // create placeholder PNG with text
+    const buffer = await sharp({
+      create: {
+        width: SIZE,
+        height: SIZE,
+        channels: 4,
+        background: { r: 245, g: 245, b: 245, alpha: 1 }
+      }
+    })
+    .composite([{
+      input: Buffer.from(
+        `<svg width="${SIZE}" height="${SIZE}">
+          <rect width="100%" height="100%" fill="#f5f5f5"/>
+          <text x="50%" y="50%" font-size="20" text-anchor="middle" fill="#999" dominant-baseline="middle">no preview</text>
+        </svg>`
+      ),
+      top: 0, left: 0
+    }])
+    .png()
+    .toBuffer();
+    fs.writeFileSync(outPath, buffer);
+    return;
+  }
+
+  // Compose texture into a nice thumbnail: background + centered texture with border
+  // Load texture and resize to fit into a square while preserving aspect
+  const texture = sharp(texturePath).ensureAlpha();
+
+  // get metadata to compute scale
+  const meta = await texture.metadata();
+  // scale to fit within 200x200
+  const maxInner = 200;
+  let width = meta.width || maxInner;
+  let height = meta.height || maxInner;
+  const scale = Math.min(maxInner / width, maxInner / height, 1);
+  width = Math.round(width * scale);
+  height = Math.round(height * scale);
+
+  const resizedTexBuffer = await texture.resize(width, height).toBuffer();
+
+  // build base SVG background (subtle gradient)
+  const svgBg = Buffer.from(`
+    <svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#fff"/>
+          <stop offset="100%" stop-color="#ededed"/>
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#g)"/>
+    </svg>
+  `);
+
+  // create shadow & border by composing several layers
+  // Center position for texture:
+  const left = Math.round((SIZE - width) / 2);
+  const top = Math.round((SIZE - height) / 2);
+
+  // create thumbnail by compositing background + shadow + texture + border
+  let composed = sharp(svgBg)
+    .composite([
+      // soft shadow (a blurred rect behind the texture)
+      {
+        input: Buffer.from(`<svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+          <rect x="${left-6}" y="${top-6}" rx="8" ry="8" width="${width+12}" height="${height+12}" fill="#000" fill-opacity="0.12"/>
+        </svg>`),
+        blend: 'over'
+      },
+      // the texture image
+      {
+        input: resizedTexBuffer,
+        left: left,
+        top: top
+      },
+      // subtle border around texture
+      {
+        input: Buffer.from(`<svg width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
+          <rect x="${left-1}" y="${top-1}" width="${width+2}" height="${height+2}" fill="none" stroke="#ddd" stroke-width="2" rx="4" ry="4"/>
+        </svg>`),
+        blend: 'over'
+      }
+    ])
+    .png();
+
+  const outBuffer = await composed.toBuffer();
+  fs.writeFileSync(outPath, outBuffer);
 }
 
 /* ----------------------------

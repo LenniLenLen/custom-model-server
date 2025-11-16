@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Render Preview</title>
+  <style>
+    html,body { margin:0; padding:0; background:transparent; }
+    #container { width:512px; height:512px; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <!-- three + prismarine-viewer via CDN -->
+  <script src="https://unpkg.com/three@0.162.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/prismarine-viewer@latest/dist/prismarine-viewer.min.js"></script>
+
+  <script>
+    (async () => {
+      // parse modelName from URL: /render/<modelName>
+      const pathParts = location.pathname.split('/');
+      const modelName = decodeURIComponent(pathParts[pathParts.length - 1] || '');
+      if (!modelName) { console.error('No modelName'); return; }
+
+      const container = document.getElementById('container');
+      // create viewer
+      const viewer = PrismarineViewer.createViewer(container, {
+        width: 512, height: 512, zoom: 2.5, background: 0x00000000
+      });
+
+      // utility to test file existence (HEAD)
+      async function exists(url) {
+        try {
+          const res = await fetch(url, { method: 'HEAD' });
+          return res.ok;
+        } catch (e) { return false; }
+      }
+
+      // Try some likely JSON model locations inside the model folder
+      const possible = [
+        `model.json`,
+        `${modelName}.json`,
+        `models/item/${modelName}.json`,
+        `assets/minecraft/models/item/${modelName}.json`,
+        `assets/minecraft/models/${modelName}.json`
+      ];
+
+      let modelUrl = null;
+      for (const p of possible) {
+        const url = `/model-file/${encodeURIComponent(modelName)}/${p}`;
+        if (await exists(url)) { modelUrl = url; break; }
+      }
+
+      // If no model JSON, try to find first JSON in folder via /model-file listing is not implemented here.
+      if (!modelUrl) {
+        // fallback: attempt direct JSON at /model-file/<modelName>/*.json not implemented
+        console.error('No model json found');
+        // set ready so puppeteer doesn't hang — it will generate placeholder
+        // draw a placeholder
+        const three = viewer.THREE;
+        const scene = viewer.scene;
+        const geometry = new three.BoxGeometry(1,1,1);
+        const material = new three.MeshNormalMaterial();
+        const cube = new three.Mesh(geometry, material);
+        scene.add(cube);
+        viewer.camera.position.set(1.2, 1.2, 2.5);
+        viewer.camera.lookAt(0,0,0);
+        window.__THUMB_READY = true;
+        return;
+      }
+
+      // fetch model JSON
+      const modelJson = await fetch(modelUrl).then(r => r.json()).catch(e => null);
+      if (!modelJson) {
+        console.error('Could not load model JSON');
+        window.__THUMB_READY = true;
+        return;
+      }
+
+      // Determine a texture to use for a simple render:
+      let texturePath = null;
+      if (modelJson.textures) {
+        // pick first texture value (could be "#layer0" reference — we strip hashes)
+        const vals = Object.values(modelJson.textures).map(v => typeof v === 'string' ? v : '');
+        if (vals.length > 0) {
+          let texRef = vals[0];
+          if (texRef.startsWith('#')) texRef = texRef.substring(1);
+          // map to likely file locations inside model folder:
+          const candidatePaths = [
+            `/${modelName}/${texRef}.png`,
+            `/${modelName}/textures/${texRef}.png`,
+            `/${modelName}/assets/minecraft/textures/${texRef}.png`,
+            `/${modelName}/textures/${texRef}.png`,
+            `/${modelName}/${texRef}`
+          ].map(p => `/model-file${p}`);
+          for (const c of candidatePaths) {
+            try {
+              const h = await fetch(c, { method: 'HEAD' });
+              if (h.ok) { texturePath = c; break; }
+            } catch(e){}
+          }
+        }
+      }
+
+      // As a practical approach: create a textured plane with that texture (looks like inventory icon)
+      const three = viewer.THREE;
+      const scene = viewer.scene;
+
+      const geometry = new three.PlaneGeometry(1,1);
+      let material;
+      if (texturePath) {
+        const loader = new three.TextureLoader();
+        loader.crossOrigin = '';
+        const tex = await new Promise((resolve) => {
+          loader.load(texturePath, t => resolve(t), undefined, () => resolve(null));
+        });
+        material = new three.MeshBasicMaterial({ map: tex, transparent: true });
+      } else {
+        material = new three.MeshBasicMaterial({ color: 0x999999 });
+      }
+
+      const mesh = new three.Mesh(geometry, material);
+      scene.add(mesh);
+
+      // camera and light to mimic inventory item view
+      viewer.camera.position.set(0, 0, 2.2);
+      viewer.camera.lookAt(0, 0, 0);
+      viewer.renderer.render(scene, viewer.camera);
+
+      // notify ready
+      window.__THUMB_READY = true;
+    })();
+  </script>
+</body>
+</html>

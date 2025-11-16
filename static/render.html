@@ -11,123 +11,111 @@
 <body>
   <div id="container"></div>
 
-  <!-- three + prismarine-viewer via CDN -->
+  <!-- Three.js + loaders -->
   <script src="https://unpkg.com/three@0.162.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/prismarine-viewer@latest/dist/prismarine-viewer.min.js"></script>
-
+  <script src="https://unpkg.com/three@0.162.0/examples/js/loaders/OBJLoader.js"></script>
+  <script src="https://unpkg.com/three@0.162.0/examples/js/loaders/GLTFLoader.js"></script>
   <script>
     (async () => {
-      // parse modelName from URL: /render/<modelName>
+      const container = document.getElementById('container');
       const pathParts = location.pathname.split('/');
       const modelName = decodeURIComponent(pathParts[pathParts.length - 1] || '');
       if (!modelName) { console.error('No modelName'); return; }
 
-      const container = document.getElementById('container');
-      // create viewer
-      const viewer = PrismarineViewer.createViewer(container, {
-        width: 512, height: 512, zoom: 2.5, background: 0x00000000
-      });
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(2, 2, 2);
+      camera.lookAt(0, 0, 0);
 
-      // utility to test file existence (HEAD)
-      async function exists(url) {
-        try {
-          const res = await fetch(url, { method: 'HEAD' });
-          return res.ok;
-        } catch (e) { return false; }
+      const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setSize(512, 512);
+      container.appendChild(renderer.domElement);
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(5,5,5);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+      // Utility: fetch folder listing from /model-file/<modelName>/
+      async function listFiles() {
+        // assuming server returns JSON list of files
+        const res = await fetch(`/model-file/${encodeURIComponent(modelName)}`);
+        if (!res.ok) return [];
+        return await res.json();
       }
 
-      // Try some likely JSON model locations inside the model folder
-      const possible = [
-        `model.json`,
-        `${modelName}.json`,
-        `models/item/${modelName}.json`,
-        `assets/minecraft/models/item/${modelName}.json`,
-        `assets/minecraft/models/${modelName}.json`
-      ];
-
-      let modelUrl = null;
-      for (const p of possible) {
-        const url = `/model-file/${encodeURIComponent(modelName)}/${p}`;
-        if (await exists(url)) { modelUrl = url; break; }
-      }
-
-      // If no model JSON, try to find first JSON in folder via /model-file listing is not implemented here.
-      if (!modelUrl) {
-        // fallback: attempt direct JSON at /model-file/<modelName>/*.json not implemented
-        console.error('No model json found');
-        // set ready so puppeteer doesn't hang — it will generate placeholder
-        // draw a placeholder
-        const three = viewer.THREE;
-        const scene = viewer.scene;
-        const geometry = new three.BoxGeometry(1,1,1);
-        const material = new three.MeshNormalMaterial();
-        const cube = new three.Mesh(geometry, material);
-        scene.add(cube);
-        viewer.camera.position.set(1.2, 1.2, 2.5);
-        viewer.camera.lookAt(0,0,0);
-        window.__THUMB_READY = true;
-        return;
-      }
-
-      // fetch model JSON
-      const modelJson = await fetch(modelUrl).then(r => r.json()).catch(e => null);
-      if (!modelJson) {
-        console.error('Could not load model JSON');
-        window.__THUMB_READY = true;
-        return;
-      }
-
-      // Determine a texture to use for a simple render:
-      let texturePath = null;
-      if (modelJson.textures) {
-        // pick first texture value (could be "#layer0" reference — we strip hashes)
-        const vals = Object.values(modelJson.textures).map(v => typeof v === 'string' ? v : '');
-        if (vals.length > 0) {
-          let texRef = vals[0];
-          if (texRef.startsWith('#')) texRef = texRef.substring(1);
-          // map to likely file locations inside model folder:
-          const candidatePaths = [
-            `/${modelName}/${texRef}.png`,
-            `/${modelName}/textures/${texRef}.png`,
-            `/${modelName}/assets/minecraft/textures/${texRef}.png`,
-            `/${modelName}/textures/${texRef}.png`,
-            `/${modelName}/${texRef}`
-          ].map(p => `/model-file${p}`);
-          for (const c of candidatePaths) {
-            try {
-              const h = await fetch(c, { method: 'HEAD' });
-              if (h.ok) { texturePath = c; break; }
-            } catch(e){}
-          }
+      // Recursive search function
+      function findFile(files, extensions) {
+        for (const f of files) {
+          const ext = f.toLowerCase().split('.').pop();
+          if (extensions.includes(ext)) return f;
         }
+        return null;
       }
 
-      // As a practical approach: create a textured plane with that texture (looks like inventory icon)
-      const three = viewer.THREE;
-      const scene = viewer.scene;
+      // Find model and texture
+      let files = [];
+      try { files = await listFiles(); } catch(e) { console.warn(e); }
 
-      const geometry = new three.PlaneGeometry(1,1);
-      let material;
-      if (texturePath) {
-        const loader = new three.TextureLoader();
-        loader.crossOrigin = '';
-        const tex = await new Promise((resolve) => {
-          loader.load(texturePath, t => resolve(t), undefined, () => resolve(null));
+      let modelFile = findFile(files, ['obj','gltf','glb','fbx']);
+      let textureFile = findFile(files, ['png']);
+      if (!modelFile) {
+        // fallback placeholder
+        const geometry = new THREE.BoxGeometry(1,1,1);
+        const material = new THREE.MeshNormalMaterial();
+        const cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+        renderer.render(scene, camera);
+        window.__THUMB_READY = true;
+        return;
+      }
+
+      let mesh;
+      const loadModel = async () => {
+        const ext = modelFile.split('.').pop().toLowerCase();
+        const url = `/model-file/${encodeURIComponent(modelName)}/${modelFile}`;
+
+        if (ext === 'obj') {
+          const loader = new THREE.OBJLoader();
+          mesh = await new Promise(resolve => loader.load(url, obj => resolve(obj)));
+        } else if (ext === 'gltf' || ext === 'glb') {
+          const loader = new THREE.GLTFLoader();
+          const gltf = await new Promise(resolve => loader.load(url, g => resolve(g)));
+          mesh = gltf.scene;
+        } else if (ext === 'fbx') {
+          // optional: FBXLoader if needed
+          console.warn('FBX not implemented in this preview');
+        }
+      };
+
+      await loadModel();
+
+      // Apply texture if found
+      if (textureFile && mesh) {
+        const texUrl = `/model-file/${encodeURIComponent(modelName)}/${textureFile}`;
+        const loader = new THREE.TextureLoader();
+        const tex = await new Promise(resolve => loader.load(texUrl, t => resolve(t), undefined, () => resolve(null)));
+        mesh.traverse((child) => {
+          if (child.isMesh) {
+            child.material.map = tex;
+            child.material.needsUpdate = true;
+          }
         });
-        material = new three.MeshBasicMaterial({ map: tex, transparent: true });
-      } else {
-        material = new three.MeshBasicMaterial({ color: 0x999999 });
       }
 
-      const mesh = new three.Mesh(geometry, material);
-      scene.add(mesh);
+      if (mesh) scene.add(mesh);
 
-      // camera and light to mimic inventory item view
-      viewer.camera.position.set(0, 0, 2.2);
-      viewer.camera.lookAt(0, 0, 0);
-      viewer.renderer.render(scene, viewer.camera);
+      // Center & scale
+      const box = new THREE.Box3().setFromObject(mesh || scene);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 1 / maxDim;
+      if (mesh) mesh.scale.setScalar(scale);
+      if (mesh) mesh.position.sub(box.getCenter(new THREE.Vector3()).multiplyScalar(scale));
 
-      // notify ready
+      renderer.render(scene, camera);
+
+      // Done
       window.__THUMB_READY = true;
     })();
   </script>

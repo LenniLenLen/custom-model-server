@@ -1,6 +1,7 @@
 {
   "name": "custom-model-server",
   "version": "1.0.0",
+  "type": "module",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.454.0",
     "@vercel/blob": "^0.22.0",

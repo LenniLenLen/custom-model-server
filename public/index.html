@@ -169,6 +169,21 @@
             background: #c0392b;
         }
         
+        .aternos-button {
+            background: #ff6b35;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background 0.2s ease;
+        }
+        
+        .aternos-button:hover {
+            background: #e55a2b;
+        }
+        
         .loading {
             text-align: center;
             padding: 40px;
@@ -307,8 +322,22 @@
         }
         
         async function uploadFile(file) {
+            // Ask for model name if it's a model file
+            const modelExtensions = ['.obj', '.gltf', '.glb', '.json'];
+            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+            
+            let modelName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+            modelName = modelName.replace(/[^a-zA-Z0-9._-]/g, '_'); // Sanitize
+            
+            if (modelExtensions.includes(ext)) {
+                const userProvidedName = prompt(`Modellname für ${file.name}:`, modelName);
+                if (!userProvidedName) return;
+                modelName = userProvidedName.replace(/[^a-zA-Z0-9._-]/g, '_');
+            }
+            
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('modelName', modelName);
             
             try {
                 const response = await fetch('/api/upload', {
@@ -322,6 +351,13 @@
                 
                 const result = await response.json();
                 showMessage(`✅ ${file.name} erfolgreich hochgeladen!`, 'success');
+                
+                // Trigger thumbnail generation if it's a model
+                if (modelExtensions.includes(ext)) {
+                    setTimeout(() => {
+                        generateThumbnail(modelName, result.files.find(f => f.type === 'model')?.url);
+                    }, 2000);
+                }
                 
             } catch (error) {
                 showMessage(`❌ Fehler beim Hochladen von ${file.name}: ${error.message}`, 'error');
@@ -337,6 +373,32 @@
             setTimeout(() => {
                 messageDiv.remove();
             }, 5000);
+        }
+        
+        async function generateThumbnail(modelName, modelUrl) {
+            try {
+                const response = await fetch('/api/thumbnail', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        modelName: modelName,
+                        modelUrl: modelUrl
+                    })
+                });
+                
+                if (!response.ok) {
+                    console.warn('Thumbnail generation failed');
+                    return;
+                }
+                
+                const result = await response.json();
+                console.log('Thumbnail generated:', result.thumbnailUrl);
+                
+            } catch (error) {
+                console.warn('Thumbnail generation error:', error);
+            }
         }
         
         async function loadModels() {
@@ -377,9 +439,12 @@
             const card = document.createElement('div');
             card.className = 'model-card';
             
-            const thumbnail = model.thumbnailUrl 
-                ? `<img src="${model.thumbnailUrl}" alt="${model.name}" onerror="this.parentElement.innerHTML='⏳ Loading...';">`
+            const thumbnail = model.thumbnail 
+                ? `<img src="${model.thumbnail}" alt="${model.name}" onerror="this.parentElement.innerHTML='⏳ Loading...';">`
                 : '⏳ Loading...';
+            
+            const modelFiles = model.files.filter(f => f.type === 'model');
+            const textureFiles = model.files.filter(f => f.type === 'texture');
             
             card.innerHTML = `
                 <div class="model-thumbnail">
@@ -388,23 +453,25 @@
                 <div class="model-info">
                     <div class="model-name">${model.name}</div>
                     <div class="model-details">
-                        📁 ${model.filename} | 📏 ${model.fileSize || 'Unknown'}
+                        📁 ${modelFiles.length} Modelle | 🎨 ${textureFiles.length} Texturen
                     </div>
                     <div class="model-actions">
-                        <button class="delete-button" onclick="deleteModel('${model.id}')">🗑️ Löschen</button>
+                        <button class="aternos-button" onclick="uploadToAternos('${model.name}')">🚀 Zu Aternos</button>
+                        <button class="delete-button" onclick="deleteModel('${model.name}')">🗑️ Löschen</button>
                     </div>
                 </div>
             `;
             
             // Load thumbnail if not available
-            if (!model.thumbnailUrl) {
+            if (!model.thumbnail) {
                 setTimeout(() => {
                     const img = card.querySelector('.model-thumbnail img');
-                    if (img) {
-                        img.src = `/api/thumbnail/${model.id}`;
-                        img.onerror = () => {
-                            img.parentElement.innerHTML = '❌ Thumbnail Fehler';
-                        };
+                    if (img && modelFiles.length > 0) {
+                        generateThumbnail(model.name, modelFiles[0].url).then(() => {
+                            setTimeout(() => loadModels(), 3000);
+                        });
+                    } else if (img) {
+                        img.parentElement.innerHTML = '❌ Kein Modell gefunden';
                     }
                 }, 1000);
             }
@@ -412,11 +479,11 @@
             return card;
         }
         
-        async function deleteModel(modelId) {
-            if (!confirm('Möchtest du dieses Modell wirklich löschen?')) return;
+        async function deleteModel(modelName) {
+            if (!confirm(`Möchtest du das Modell "${modelName}" wirklich löschen?`)) return;
             
             try {
-                const response = await fetch(`/api/delete/${modelId}`, {
+                const response = await fetch(`/api/delete?modelName=${encodeURIComponent(modelName)}`, {
                     method: 'DELETE'
                 });
                 
@@ -429,6 +496,52 @@
                 
             } catch (error) {
                 showMessage(`❌ ${error.message}`, 'error');
+            }
+        }
+        
+        async function uploadToAternos(modelName) {
+            if (!confirm(`Resource Pack mit "${modelName}" zu Aternos hochladen und Server neustarten?`)) return;
+            
+            try {
+                showMessage('🚀 Lade Resource Pack zu Aternos hoch...', 'success');
+                
+                const response = await fetch('/api/sendpack-aternos-auto', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        modelName: modelName
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Aternos Upload fehlgeschlagen');
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('🎉 Resource Pack erfolgreich zu Aternos hochgeladen! Server wird neugestartet...', 'success');
+                    
+                    // Check server status after a delay
+                    setTimeout(async () => {
+                        try {
+                            const statusResponse = await fetch('/api/aternos-status');
+                            if (statusResponse.ok) {
+                                const status = await statusResponse.json();
+                                showMessage(`📊 Server Status: ${status.status || 'Wird neu gestartet...'}`, 'success');
+                            }
+                        } catch (error) {
+                            console.warn('Status check failed:', error);
+                        }
+                    }, 5000);
+                } else {
+                    throw new Error(result.message || 'Unknown error');
+                }
+                
+            } catch (error) {
+                showMessage(`❌ Aternos Upload Fehler: ${error.message}`, 'error');
             }
         }
         

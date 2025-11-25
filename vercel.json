@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {"src": "api/*.js", "use": "@vercel/node"},
+    {"src": "public/**/*", "use": "@vercel/static"}
+  ],
+  "routes": [
+    {"src": "/api/(.*)", "dest": "/api/$1.js"},
+    {"src": "/(.*)", "dest": "/public/$1"}
+  ],
+  "env": {
+    "BLOB_READ_WRITE_TOKEN": "@blob_read_write_token",
+    "R2_ENDPOINT": "@r2_endpoint",
+    "R2_ACCESS_KEY_ID": "@r2_access_key_id",
+    "R2_SECRET_ACCESS_KEY": "@r2_secret_access_key",
+    "R2_BUCKET_NAME": "@r2_bucket_name",
+    "PACK_NAMESPACE": "@pack_namespace",
+    "CLOUDNORD_API_URL": "@cloudnord_api_url",
+    "CLOUDNORD_API_KEY": "@cloudnord_api_key",
+    "CLOUDNORD_SERVER_ID": "@cloudnord_server_id"
+  }
+}

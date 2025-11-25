@@ -1,39 +1,42 @@
-# 🎮 Minecraft Custom Model Server
+# Minecraft Custom Model Server
 
 Eine Vercel-Web-App zum Hochladen von Minecraft 3D-Modellen mit automatischer Resourcepack-Generierung und CloudNord-Integration.
 
-## 🚀 Features
+## Features
 
-- **📁 Modell-Upload**: Unterstützt .obj, .gltf, .glb, .json Modelle und .png Texturen
-- **🖼️ 3D-Thumbnails**: Automatische Generierung mit Puppeteer und Three.js
-- **☁️ Cloud Storage**: Persistente Speicherung mit Cloudflare R2
-- **📦 Resourcepack-Automatisierung**: Automatische Generierung von Minecraft Resourcepacks
-- **🔄 Server-Integration**: Automatischer Upload zu CloudNord Minecraft-Server
-- **📱 Responsive UI**: Modernes Frontend mit Drag-and-Drop
+- **Modell-Upload**: Unterstützt .obj, .gltf, .glb, .json Modelle und .png Texturen (auch als .zip)
+- **3D-Thumbnails**: Automatische Generierung mit Puppeteer und Three.js
+- **Cloud Storage**: Persistente Speicherung mit Vercel Blob Storage
+- **Resourcepack-Automatisierung**: Automatische Generierung von Minecraft Resourcepacks
+- **Server-Integration**: Automatischer Upload zu CloudNord Minecraft-Server
+- **Responsive UI**: Modernes Frontend mit Drag-and-Drop
 
-## 🏗️ Architektur
+## Architektur
 
 - **Hosting**: Vercel (Serverless Functions)
-- **Storage**: Cloudflare R2
+- **Storage**: Vercel Blob Storage
 - **Frontend**: Vanilla HTML/CSS/JavaScript
-- **Backend**: Node.js mit AWS SDK
-- **3D Rendering**: Three.js + Puppeteer
+- **Backend**: Node.js mit Vercel SDK
+- **3D Rendering**: Three.js + Puppeteer (chrome-aws-lambda)
 
-## 📋 Voraussetzungen
+## Voraussetzungen
 
-### Cloudflare R2 Storage
-- R2 Bucket erstellen
-- Access Keys generieren
+### Vercel Blob Storage
+- Vercel Projekt erstellen
+- Blob Storage aktivieren
 - Environment Variables setzen
 
 ### CloudNord Server (Optional)
 - API-Zugangsdaten
 - Server-ID
 
-## ⚙️ Environment Variables
+## Environment Variables
 
 ```bash
-# Cloudflare R2
+# Vercel Blob Storage
+BLOB_READ_WRITE_TOKEN=blob_rw_your_token
+
+# Cloudflare R2 (Alternative zu Blob)
 R2_ENDPOINT=https://your-account.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID=your-access-key
 R2_SECRET_ACCESS_KEY=your-secret-key
@@ -43,14 +46,13 @@ R2_BUCKET_NAME=minecraft-models
 CLOUDNORD_API_URL=https://api.cloudnord.com
 CLOUDNORD_API_KEY=your-api-key
 CLOUDNORD_SERVER_ID=your-server-id
-CLOUDNORD_RESOURCEPACK_PATH=/resourcepack.zip
 
 # Pack Configuration
 PACK_NAMESPACE=custommodels
 VERCEL_URL=https://your-app.vercel.app
 ```
 
-## 🛠️ Installation
+## Installation
 
 1. **Repository klonen**
    ```bash

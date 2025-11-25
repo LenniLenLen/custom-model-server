@@ -223,7 +223,9 @@
             isLoaded = true;
             hideLoading();
             
-            // Signal that rendering is ready
+            // Signal that rendering is ready for Puppeteer
+            window.__THUMB_READY = true;
+            
             setTimeout(() => {
                 document.body.classList.add('render-ready');
             }, 1000);
